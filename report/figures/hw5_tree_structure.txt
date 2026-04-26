@@ -1,0 +1,52 @@
+Decision Tree (criterion=gini, min_samples_leaf=20, max_depth=None)
+n_nodes=49  max_depth_reached=7
+
+└── cp <= 0.5000  n=737  impurity=0.4943
+    ├── exang <= 0.5000  n=401  impurity=0.3224
+    │   ├── chol <= 42.5000  n=170  impurity=0.4457
+    │   │   ├── thalch <= 121.0000  n=48  impurity=0.0799
+    │   │   │   ├── Leaf: predict=1  n=21  impurity=0.1723
+    │   │   │   └── Leaf: predict=1  n=27  impurity=0.0000
+    │   │   └── ca <= 0.5000  n=122  impurity=0.4952
+    │   │       ├── thalch <= 141.0000  n=96  impurity=0.4980
+    │   │       │   ├── oldpeak <= 0.4500  n=57  impurity=0.4814
+    │   │       │   │   ├── Leaf: predict=0  n=23  impurity=0.4915
+    │   │       │   │   └── Leaf: predict=1  n=34  impurity=0.4152
+    │   │       │   └── Leaf: predict=0  n=39  impurity=0.4050
+    │   │       └── Leaf: predict=1  n=26  impurity=0.2604
+    │   └── sex <= 0.5000  n=231  impurity=0.1862
+    │       ├── Leaf: predict=1  n=30  impurity=0.3911
+    │       └── oldpeak <= 0.3500  n=201  impurity=0.1465
+    │           ├── Leaf: predict=1  n=36  impurity=0.3133
+    │           └── trestbps <= 111.0000  n=165  impurity=0.1031
+    │               ├── Leaf: predict=1  n=20  impurity=0.2550
+    │               └── thalch <= 112.5000  n=145  impurity=0.0793
+    │                   ├── trestbps <= 141.0000  n=44  impurity=0.1653
+    │                   │   ├── Leaf: predict=1  n=20  impurity=0.2550
+    │                   │   └── Leaf: predict=1  n=24  impurity=0.0799
+    │                   └── chol <= 50.0000  n=101  impurity=0.0388
+    │                       ├── Leaf: predict=1  n=22  impurity=0.1653
+    │                       └── Leaf: predict=1  n=79  impurity=0.0000
+    └── age <= 56.5000  n=336  impurity=0.3866
+        ├── chol <= 158.5000  n=232  impurity=0.2739
+        │   ├── Leaf: predict=1  n=20  impurity=0.4800
+        │   └── oldpeak <= 0.4500  n=212  impurity=0.2152
+        │       ├── chol <= 282.0000  n=147  impurity=0.1268
+        │       │   ├── chol <= 242.5000  n=120  impurity=0.0644
+        │       │   │   ├── trestbps <= 131.0000  n=89  impurity=0.0222
+        │       │   │   │   ├── Leaf: predict=0  n=63  impurity=0.0000
+        │       │   │   │   └── Leaf: predict=0  n=26  impurity=0.0740
+        │       │   │   └── Leaf: predict=0  n=31  impurity=0.1748
+        │       │   └── Leaf: predict=0  n=27  impurity=0.3457
+        │       └── slope <= 1.5000  n=65  impurity=0.3711
+        │           ├── chol <= 228.5000  n=43  impurity=0.4673
+        │           │   ├── Leaf: predict=0  n=23  impurity=0.3403
+        │           │   └── Leaf: predict=1  n=20  impurity=0.4950
+        │           └── Leaf: predict=0  n=22  impurity=0.0000
+        └── sex <= 0.5000  n=104  impurity=0.4993
+            ├── Leaf: predict=0  n=28  impurity=0.1913
+            └── thalch <= 134.5000  n=76  impurity=0.4720
+                ├── Leaf: predict=1  n=32  impurity=0.3750
+                └── age <= 60.5000  n=44  impurity=0.4990
+                    ├── Leaf: predict=1  n=20  impurity=0.4800
+                    └── Leaf: predict=0  n=24  impurity=0.4965

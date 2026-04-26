@@ -78,7 +78,10 @@ ml_classification/
 │   ├── linear_classifier.py     ← LeastSquaresClassifier (normal equation, optional ridge)
 │   ├── logistic_regression.py   ← LogisticRegression (BCE + gradient descent, L2 reg)
 │   └── hw4_evaluation.ipynb     ← Evaluation notebook
-├── hw5/                       ← LDA/QDA + Decision Tree (not yet implemented)
+├── hw5/
+│   ├── __init__.py            ← Re-exports LDA and QDA
+│   ├── lda_qda.py             ← LDA and QDA (generative, Gaussian class-conditionals)
+│   └── hw5_evaluation.ipynb   ← Evaluation notebook (not yet written)
 └── report/                    ← Final report deliverable (not yet written)
 ```
 
@@ -592,15 +595,277 @@ Scaling is essential for both algorithms: the conditioning of X̃ᵀX̃ (least-s
 
 ---
 
-## 13. How to Run
+## 13. HW5 — LDA and QDA
+
+### Generative model framing
+
+Both LDA and QDA are **generative classifiers**: they model the class-conditional density
+`P(x | y=c)` as a multivariate Gaussian, then combine it with the class prior `P(y=c)` via
+Bayes' rule to obtain the posterior:
+
+```
+P(y=c | x)  ∝  P(x | y=c) · P(y=c)
+           =  N(x; μ_c, Σ_c) · π_c
+```
+
+Classification is by argmax posterior, equivalently argmax **log** posterior (dropping the
+x-only normalizing constant — the log determinant of `P(x)` is the same for all classes
+and cancels).
+
+### Estimated parameters
+
+For each class c, from the training set:
+
+| Quantity | Formula |
+|---------|---------|
+| Prior `π_c` | `N_c / N` |
+| Mean `μ_c` | `mean of X where y=c` |
+| **LDA:** pooled `Σ` | `(1/(N−K)) · Σ_c Σ_{i:y_i=c} (x_i−μ_c)(x_i−μ_c)ᵀ` |
+| **QDA:** per-class `Σ_c` | `(1/(N_c−1)) · Σ_{i:y_i=c} (x_i−μ_c)(x_i−μ_c)ᵀ` |
+
+### Discriminant functions
+
+**LDA** (shared Σ → the quadratic terms in x cancel → linear boundary):
+
+```
+δ_c(x) = xᵀ Σ⁻¹ μ_c  −  (1/2) μ_cᵀ Σ⁻¹ μ_c  +  log π_c
+```
+
+**QDA** (separate Σ_c → quadratic boundary):
+
+```
+δ_c(x) = −(1/2) log|Σ_c|  −  (1/2)(x−μ_c)ᵀ Σ_c⁻¹ (x−μ_c)  +  log π_c
+```
+
+### Numerical stability
+
+| Concern | Solution |
+|---------|---------|
+| Singular covariance (correlated features, small N_c) | Ridge: add `ε·I` (`reg_param`, default `1e-6`) to every covariance before inversion |
+| Matrix inversion | `np.linalg.solve(Σ, I)` instead of `np.linalg.inv(Σ)` — uses LU factorisation, never forms the explicit inverse |
+| Log-determinant overflow | `np.linalg.slogdet` returns `(sign, log|det|)` directly — avoids computing `det` then `log` of a potentially huge number |
+| Under-sampled QDA class | `N_c < n_features + 1` → rank-deficient scatter matrix; detected at fit time with a clear `ValueError` suggesting LDA, more data, or PCA |
+| Posterior normalization | Log-sum-exp trick: `P(y=c|x) = exp(δ_c − log Σ_c exp(δ_c))`; subtract row-max before exp to prevent overflow |
+
+### When to prefer LDA vs QDA
+
+| Scenario | Prefer |
+|----------|--------|
+| Small dataset (`N_c` is small relative to `n_features`) | **LDA** — fewer parameters to estimate; pooling stabilizes Σ |
+| Class covariances are visually or statistically similar | **LDA** — the shared-Σ assumption holds; LDA is more interpretable |
+| Classes clearly have different shapes / orientations | **QDA** — separate Σ_c captures this; LDA will underfit |
+| Enough data per class (`N_c ≫ n_features`) | **QDA** — can afford the extra parameters without overfitting |
+
+### Implementation: `hw5/lda_qda.py`
+
+```python
+from hw5.lda_qda import LDA, QDA
+
+# LDA
+lda = LDA(reg_param=1e-6)
+lda.fit(X_train, y_train)
+y_pred  = lda.predict(X_test)          # shape (n_test,) — original labels
+proba   = lda.predict_proba(X_test)    # shape (n_test, K), rows sum to 1
+scores  = lda.decision_function(X_test)# shape (n_test, K), raw log-discriminants
+
+# QDA
+qda = QDA(reg_param=1e-6)
+qda.fit(X_train, y_train)
+y_pred  = qda.predict(X_test)
+proba   = qda.predict_proba(X_test)
+scores  = qda.decision_function(X_test)
+```
+
+**Attributes after `fit`:**
+
+| Attribute | LDA | QDA |
+|-----------|-----|-----|
+| `classes_` | sorted unique labels | sorted unique labels |
+| `priors_` | `(K,)` | `(K,)` |
+| `means_` | `(K, n_features)` | `(K, n_features)` |
+| `covariance_` | `(n_features, n_features)` pooled Σ | — |
+| `covariances_` | — | `(K, n_features, n_features)` per-class Σ_c |
+
+### Design note
+
+`_GaussianDiscriminant` is a private abstract base class shared by LDA and QDA.
+The shared scaffold (`fit`, `predict`, `predict_proba`, `decision_function`) lives in the base;
+each subclass overrides only `_fit_covariances()` and `_discriminant()` — the two methods that
+differ between the two models.
+
+### Sanity test
+
+```bash
+python hw5/lda_qda.py
+```
+
+Verifies (on synthetic 2D data, 3 classes):
+1. LDA on shared-covariance data: training accuracy > 90 %.
+2. QDA on distinct-covariance data: training accuracy > 90 %.
+3. QDA on 5-sample class with 10 features: `ValueError` raised as expected.
+4. LDA on distinct-covariance data: still runs; accuracy lower than QDA's (confirms the two models differ).
+5. Both handle binary (K=2) inputs with accuracy > 90 % and `predict_proba` rows summing to 1.
+6. `LDA(reg_param=-1)` and `QDA(reg_param=-0.01)` raise `ValueError`.
+
+---
+
+## 14. HW5 — Decision Tree
+
+### Algorithm overview
+
+Standard CART-style classification tree for continuous features.
+
+**Splitting:** for each internal node, the best (feature, threshold) pair is chosen by maximizing **information gain** relative to a chosen impurity measure.  Candidate thresholds are midpoints between consecutive unique values — semantically equivalent to trying every distinct split but without redundant evaluations.
+
+**Gini impurity:**
+```
+G(node) = 1 - Σ_c p_c²
+```
+**Entropy:**
+```
+H(node) = -Σ_c p_c log₂(p_c)      (with 0·log 0 = 0)
+```
+**Information gain:**
+```
+Gain = parent_impurity  -  (n_left/n) · G(left)  -  (n_right/n) · G(right)
+```
+
+### Vectorized threshold evaluation
+
+Impurity is evaluated for all candidate thresholds of a single feature in one NumPy pass:
+
+1. Sort samples by feature value once → `O(n log n)`.
+2. Build cumulative class-count matrix `(K × n)` via `cumsum` along the sample axis.
+3. Use `np.searchsorted` to map each midpoint threshold to a split position (last index ≤ threshold).
+4. Read left/right counts by integer indexing into the cumulative matrix → no Python loop over thresholds.
+
+Total cost per feature: `O(n·K + T)` where T = number of unique-value midpoints.  This keeps the depth sweep from the notebook fast.
+
+### Stopping criteria
+
+| Criterion | Meaning |
+|-----------|---------|
+| `max_depth` | Don't split if current depth ≥ max_depth. |
+| `min_samples_split` | Don't split if node has < min_samples_split samples. |
+| `min_samples_leaf` | Reject any split creating a child with < min_samples_leaf samples. |
+| `min_impurity_decrease` | Reject a split if `gain × (n_node / n_total) < min_impurity_decrease`. The `n_node / n_total` weighting down-weights gains from small (deep) nodes, requiring proportionally more gain to justify a split — a regularization effect matching the sklearn convention. |
+
+**Leaf prediction:** majority class.  Ties broken by the lowest class label (deterministic — `np.argmax` on the sorted `classes_` array returns the first occurrence of the maximum count).
+
+### Implementation: `hw5/decision_tree.py`
+
+```python
+from hw5.decision_tree import DecisionTreeClassifier
+
+dt = DecisionTreeClassifier(criterion='gini', max_depth=None, min_samples_leaf=20)
+dt.fit(X_train, y_train)
+
+y_pred  = dt.predict(X_test)          # shape (n_test,)
+y_proba = dt.predict_proba(X_test)    # shape (n_test, n_classes), rows sum to 1
+scores  = dt.decision_function(X_test)# — not applicable; use predict_proba
+
+dt.print_tree(feature_names=feature_cols, max_lines=50)
+```
+
+**Attributes after `fit`:**
+
+| Attribute | Description |
+|-----------|-------------|
+| `classes_` | Sorted unique class labels |
+| `n_classes_` | Number of classes |
+| `root_` | Root `_Node` object |
+| `n_nodes_` | Total node count (leaves + internal) |
+| `max_depth_reached_` | Actual depth of deepest leaf |
+| `feature_names_` | Set if input was a DataFrame |
+
+### Sanity test
+
+```bash
+python hw5/decision_tree.py
+```
+
+Verifies (synthetic iris-like data, 3 classes, 4 features, 150 samples):
+1. Unconstrained tree achieves 100% training accuracy.
+2. `max_depth=2` reduces node count and training accuracy.
+3. `predict_proba` rows sum to 1.
+4. `criterion="entropy"` produces > 90% training accuracy.
+5. Single-class y → single leaf (no error).
+6. n_samples=1 → single leaf.
+7. All-identical features → single leaf.
+8. `min_samples_leaf=10` → smallest leaf has ≥ 10 samples.
+9. `min_impurity_decrease=0.5` → dramatically fewer nodes than unconstrained.
+10. `print_tree()` runs and prints readable output.
+11. All invalid constructor arguments raise `ValueError`.
+
+---
+
+## 15. HW5 — Evaluation
+
+### Notebook
+
+`hw5/hw5_evaluation.ipynb` — run with `jupyter notebook hw5/hw5_evaluation.ipynb`.
+
+Or execute non-interactively:
+```bash
+jupyter nbconvert --to notebook --execute --inplace hw5/hw5_evaluation.ipynb
+```
+
+### Preprocessing summary
+
+| Pipeline | Scaling | Used by |
+|----------|---------|---------|
+| `X_train_sc` / `X_test_sc` | `StandardScaler` | LDA, QDA |
+| `X_train` / `X_test` | None | Decision Tree |
+
+**Why scale for LDA/QDA:** covariance estimation and its inverse are scale-sensitive — features with large absolute ranges dominate off-diagonal terms, distorting the Gaussian fit.
+
+**Why not scale for Decision Tree:** trees split on raw thresholds; only rank order matters. Unscaled features preserve clinically interpretable thresholds (`cp ≤ 0.5`, `thalch ≤ 141`).
+
+### Best configurations found
+
+| Algorithm | Best Config | 5-fold CV | Test Acc | Macro F1 |
+|-----------|------------|-----------|----------|----------|
+| LDA | reg_param=1e-6 | 0.8033 ± 0.0296 | **0.7814** | 0.7795 |
+| QDA | reg_param=1e-6 | 0.8115 ± 0.0200 | **0.8087** | 0.8019 |
+| Decision Tree | gini, min_leaf=20 | 0.7653 ± 0.0138 | **0.7814** | 0.7766 |
+
+### Cross-HW comparison (all seven classifiers)
+
+| Algorithm | Best Config | 5-fold CV | Test Acc | Macro F1 |
+|-----------|------------|-----------|----------|----------|
+| kNN | k=21, manhattan | 0.8291 ± 0.0193 | **0.8197** | 0.8175 |
+| Naive Bayes | alpha=0.01, n_bins=5 | 0.8223 ± 0.0227 | **0.8033** | 0.7995 |
+| Least-Squares | λ=0 | 0.8047 ± 0.0282 | 0.7814 | 0.7795 |
+| Logistic Regression | lr=0.1, λ=0.1 | 0.8128 ± 0.0295 | 0.7814 | 0.7779 |
+| LDA | reg_param=1e-6 | 0.8033 ± 0.0296 | 0.7814 | 0.7795 |
+| QDA | reg_param=1e-6 | 0.8115 ± 0.0200 | **0.8087** | 0.8019 |
+| Decision Tree | gini, min_leaf=20 | 0.7653 ± 0.0138 | 0.7814 | 0.7766 |
+
+### Key findings
+
+**Algorithm family ranking:** kNN > Naive Bayes ≈ QDA > the rest (linear models + DT all at ~78%).  kNN's locally-adaptive boundary and QDA's per-class covariance both capture the mild non-linearity in the data better than global linear models.
+
+**LDA vs QDA:** QDA outperforms LDA by 2.7 pp.  The per-class covariance diagonals reveal that `chol`, `oldpeak`, `thal`, and `ca` have variance ratios of 2.5–3.0 between classes — the shared-covariance assumption of LDA does not hold, and QDA's quadratic boundary is the better fit.
+
+**Decision Tree:** the best DT (min_samples_leaf=20, unconstrained depth) matches the linear models at 78.14% test accuracy but shows higher CV variance.  The depth sweep confirms classic overfitting: training accuracy reaches 100% (unconstrained tree memorizes the data) while test accuracy peaks around max_depth=5 and then declines.  `min_samples_leaf=20` is more effective regularization than limiting depth on this dataset.
+
+**Cross-algorithm feature agreement:** `cp` (chest pain type) and `exang` (exercise-induced angina) are identified as top features by LDA mean separation (0.80 and 0.87 z-units), logistic regression coefficients (|coef| 0.40 and 0.36), and decision tree root splits.  Three independent algorithms pointing to the same features is strong evidence of genuine clinical importance.
+
+**Practical recommendation:** QDA for calibrated probabilities; Decision Tree (min_leaf=20) for interpretability.  All models share the same missing-data limitation: `ca` and `thal` have high missingness rates, and median/mode imputation is a simplification that a production system should address more carefully.
+
+---
+
+## 16. How to Run
 
 ### Verify implementations
 
 ```bash
-python hw3/knn.py                # kNN sanity test
-python hw3/naive_bayes.py        # NB sanity test
-python hw4/linear_classifier.py  # Least-squares sanity test
+python hw3/knn.py                  # kNN sanity test
+python hw3/naive_bayes.py          # NB sanity test
+python hw4/linear_classifier.py    # Least-squares sanity test
 python hw4/logistic_regression.py  # Logistic regression sanity test
+python hw5/lda_qda.py              # LDA / QDA sanity test
+python hw5/decision_tree.py        # Decision Tree sanity test
 ```
 
 ### Run evaluation notebooks
@@ -608,6 +873,7 @@ python hw4/logistic_regression.py  # Logistic regression sanity test
 ```bash
 jupyter notebook hw3/hw3_evaluation.ipynb
 jupyter notebook hw4/hw4_evaluation.ipynb
+jupyter notebook hw5/hw5_evaluation.ipynb
 ```
 
 Or execute non-interactively:
