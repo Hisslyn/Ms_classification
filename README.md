@@ -79,10 +79,11 @@ ml_classification/
 │   ├── logistic_regression.py   ← LogisticRegression (BCE + gradient descent, L2 reg)
 │   └── hw4_evaluation.ipynb     ← Evaluation notebook
 ├── hw5/
-│   ├── __init__.py            ← Re-exports LDA and QDA
+│   ├── __init__.py            ← Re-exports LDA, QDA, and DecisionTreeClassifier
 │   ├── lda_qda.py             ← LDA and QDA (generative, Gaussian class-conditionals)
-│   └── hw5_evaluation.ipynb   ← Evaluation notebook (not yet written)
-└── report/                    ← Final report deliverable (not yet written)
+│   ├── decision_tree.py       ← DecisionTreeClassifier (CART, Gini/entropy, depth/leaf pruning)
+│   └── hw5_evaluation.ipynb   ← Evaluation notebook (sweeps, CV, confusion matrices, analysis)
+└── report/                    ← Final report (report.md, report.pdf, figures/)
 ```
 
 ---
@@ -97,7 +98,8 @@ Returns `{"continuous": [...], "categorical": [...]}` — the only place dataset
 **`load_heart_disease(path) → pd.DataFrame`**  
 Reads CSV, binarizes `num` into `target`, drops `id` and `dataset`. No imputation or encoding — those are separate steps.
 
-**`impute_missing(df, continuous_cols, categorical_cols) → pd.DataFrame`**  
+**`impute_missing(df, continuous_cols, categorical_cols, zero_coded_cols=None) → pd.DataFrame`**  
+- `zero_coded_cols` (optional): columns where `0` encodes a missing value rather than a real measurement — those zeros are replaced with `NaN` before imputation.
 - Continuous: **median imputation** — robust to outliers, no distributional assumptions.
 - Categorical: **mode imputation** — most frequent category. Deterministic tie-breaking (smallest value).
 - Returns a new DataFrame; input is never mutated.
@@ -123,7 +125,7 @@ Discretizes continuous features into integer bin indices for use in HW3 Naive Ba
 - `strategy="uniform"`: equal-width bins via `np.linspace(min, max, n_bins+1)`.
 - `strategy="quantile"`: equal-frequency bins via `np.percentile`. Duplicate edges (from heavy ties) are deduplicated with `np.unique`.
 - Bin edges are fit on training data; test values are clipped to the boundary bins — no out-of-range errors.
-- Output: integer array with values in `[0, n_bins - 1]`.
+- Output: integer array with values in `[0, n_bins - 1]` for `strategy="uniform"`. With `strategy="quantile"`, duplicate edges are removed via `np.unique`, so the actual upper bound is `len(unique_edges) - 2`, which may be less than `n_bins - 1` when a feature has heavy ties.
 
 ---
 
@@ -352,14 +354,14 @@ Both pipelines are fit on training data only; test data is transformed using tra
 
 | Algorithm | Best config | CV acc (5-fold) | Test acc | Macro F1 |
 |-----------|------------|----------------|----------|----------|
-| kNN | k=21, distance=manhattan | 0.8291 ± 0.0193 | **0.8197** | 0.8175 |
-| Naive Bayes | alpha=0.01, n_bins=5 | 0.8223 ± 0.0227 | **0.8033** | 0.7995 |
+| kNN | k=31, distance=manhattan | 0.8087 ± 0.0212 | **0.7978** | 0.7954 |
+| Naive Bayes | alpha=0.01, n_bins=7 | 0.8114 ± 0.0178 | **0.8033** | 0.8001 |
 
 ### Key findings
 
 - Manhattan distance outperforms Euclidean consistently across all k values — likely because it is less sensitive to the integer-coded categoricals and outliers in `chol`/`oldpeak`.
 - NB accuracy is invariant to alpha (0.01–5.0) on this split: no out-of-vocabulary values exist in the test set, so smoothing affects only probability magnitudes, not the argmax decision.
-- n_bins=5 is the NB sweet spot — coarser bins lose resolution; finer bins introduce data sparsity.
+- n_bins=7 is the NB sweet spot — n_bins=5 (78.69%) loses discriminative resolution; n_bins=10 introduces data sparsity; seven bins gives the best bias-variance tradeoff at this training set size.
 - Both models achieve similar accuracy (~80–82%), confirming that the naive independence assumption is surprisingly robust for classification on this dataset despite clearly correlated features (`age`, `chol`, `trestbps`, `thalch`).
 
 ---
@@ -456,7 +458,7 @@ Verifies on a synthetic two-Gaussian-blob dataset (no real data):
 - `decision_function` returns continuous values (not just 0/1).
 - `ValueError` raised for 3-class y.
 - `ValueError` raised for `regularization < 0`.
-- Collinear columns without regularization raise `LinAlgError` with a helpful message.
+- Collinear columns without regularization: raises `LinAlgError` with a helpful message if NumPy's solver fails, or solves via least-norm if NumPy resolves the singularity internally — both outcomes are accepted.
 - Collinear columns with `regularization=1e-4` solve cleanly.
 
 ---
@@ -512,13 +514,13 @@ Training halts when `|L(t-1) - L(t)| < tol`. This detects effective convergence 
 ```python
 from hw4.logistic_regression import LogisticRegression
 
-lr = LogisticRegression(learning_rate=0.1, n_epochs=2000, tol=1e-7, regularization=0.1)
+lr = LogisticRegression(learning_rate=0.1, n_epochs=2000, tol=1e-8, regularization=0.1)
 lr.fit(X_train, y_train)
 
 y_pred    = lr.predict(X_test)              # shape (n_test,)
 y_proba   = lr.predict_proba(X_test)        # shape (n_test, 2), rows sum to 1
 logits    = lr.decision_function(X_test)    # shape (n_test,) — pre-sigmoid scores
-loss_hist = lr.loss_history_                # list of per-epoch BCE losses
+loss_hist = lr.loss_history_                # list of per-epoch losses (BCE + L2 penalty)
 ```
 
 **Attributes after `fit`:**
@@ -585,11 +587,11 @@ Scaling is essential for both algorithms: the conditioning of X̃ᵀX̃ (least-s
 
 - **Regularization for least-squares:** Test accuracy is flat across all λ ∈ {0, 0.01, 0.1, 1.0, 10.0, 100.0} after standardization. X̃ᵀX̃ is already well-conditioned — ridge regularization neither helps nor hurts. Best λ defaults to 0.
 
-- **Convergence speed:** `lr=0.1` reaches the BCE optimum in ~742 epochs. `lr=0.001` is still 60 epochs away from convergence at epoch 10,000. For this dataset, any `lr ≥ 0.1` converges cleanly because the scaled feature matrix is well-conditioned.
+- **Convergence speed:** `lr=0.1` reaches the BCE optimum in ~742 epochs. `lr=0.001` had not converged after 2,000 epochs in the learning-rate sweep (final loss 0.494 vs. optimum 0.423). For this dataset, any `lr ≥ 0.1` converges cleanly because the scaled feature matrix is well-conditioned.
 
-- **Both HW4 methods tie at 78.14% test accuracy**, roughly 3.8 pp below the best HW3 result (kNN 81.97%). The gap suggests the optimal boundary has slight non-linearity that kNN's locally adaptive decision captures.
+- **Both HW4 methods tie at 78.14% test accuracy**, roughly 1.6 pp below the best HW3 result (kNN 79.78%). The gap suggests the optimal boundary has slight non-linearity that kNN's locally adaptive decision captures.
 
-- **Score correlation:** LS and LR decision scores correlate at r ≈ 0.95 — they carve out nearly the same boundary despite different loss functions. The loss-function difference matters more when class distributions have heavy tails or severe imbalance.
+- **Score correlation:** LS and LR decision scores correlate at r ≈ 0.995 — they carve out nearly the same boundary despite different loss functions. The loss-function difference matters more when class distributions have heavy tails or severe imbalance.
 
 - **Top LR features by |coef|:** `cp` (chest pain type, −0.40), `exang` (exercise angina, +0.36), `sex` (+0.36), `oldpeak` (ST depression, +0.34). All signs are clinically consistent with known cardiovascular disease risk factors.
 
@@ -762,8 +764,6 @@ dt.fit(X_train, y_train)
 
 y_pred  = dt.predict(X_test)          # shape (n_test,)
 y_proba = dt.predict_proba(X_test)    # shape (n_test, n_classes), rows sum to 1
-scores  = dt.decision_function(X_test)# — not applicable; use predict_proba
-
 dt.print_tree(feature_names=feature_cols, max_lines=50)
 ```
 
@@ -833,8 +833,8 @@ jupyter nbconvert --to notebook --execute --inplace hw5/hw5_evaluation.ipynb
 
 | Algorithm | Best Config | 5-fold CV | Test Acc | Macro F1 |
 |-----------|------------|-----------|----------|----------|
-| kNN | k=21, manhattan | 0.8291 ± 0.0193 | **0.8197** | 0.8175 |
-| Naive Bayes | alpha=0.01, n_bins=5 | 0.8223 ± 0.0227 | **0.8033** | 0.7995 |
+| kNN | k=31, manhattan | 0.8087 ± 0.0212 | **0.7978** | 0.7954 |
+| Naive Bayes | alpha=0.01, n_bins=7 | 0.8114 ± 0.0178 | **0.8033** | 0.8001 |
 | Least-Squares | λ=0 | 0.8047 ± 0.0282 | 0.7814 | 0.7795 |
 | Logistic Regression | lr=0.1, λ=0.1 | 0.8128 ± 0.0295 | 0.7814 | 0.7779 |
 | LDA | reg_param=1e-6 | 0.8033 ± 0.0296 | 0.7814 | 0.7795 |
@@ -843,7 +843,7 @@ jupyter nbconvert --to notebook --execute --inplace hw5/hw5_evaluation.ipynb
 
 ### Key findings
 
-**Algorithm family ranking:** kNN > Naive Bayes ≈ QDA > the rest (linear models + DT all at ~78%).  kNN's locally-adaptive boundary and QDA's per-class covariance both capture the mild non-linearity in the data better than global linear models.
+**Algorithm family ranking:** QDA > Naive Bayes > kNN > the rest (linear models + DT all at ~78%).  Naive Bayes (80.33%) marginally outperforms kNN (79.78%); QDA's per-class covariance captures mild non-linearity that the shared-covariance LDA misses.
 
 **LDA vs QDA:** QDA outperforms LDA by 2.7 pp.  The per-class covariance diagonals reveal that `chol`, `oldpeak`, `thal`, and `ca` have variance ratios of 2.5–3.0 between classes — the shared-covariance assumption of LDA does not hold, and QDA's quadratic boundary is the better fit.
 

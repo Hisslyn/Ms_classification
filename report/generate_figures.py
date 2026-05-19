@@ -74,7 +74,7 @@ def load_and_preprocess():
     cont_cols = feature_types["continuous"]
     cat_cols = feature_types["categorical"]
 
-    df = impute_missing(df, cont_cols, cat_cols)
+    df = impute_missing(df, cont_cols, cat_cols, zero_coded_cols=feature_types["zero_coded_missing"])
     df, _ = encode_categoricals(df, cat_cols)
     df = df.drop(columns=["num"])
 
@@ -121,9 +121,9 @@ def generate_hw3_figures(X_train, X_test, y_train, y_test):
     savefig("hw3_knn_k_sweep.png")
 
     # --- kNN best confusion ---
-    best_knn = KNN(k=21, distance="manhattan", weights="uniform").fit(X_tr_sc, y_train)
+    best_knn = KNN(k=31, distance="manhattan", weights="uniform").fit(X_tr_sc, y_train)
     cm = confusion_matrix(y_test, best_knn.predict(X_te_sc))
-    plot_confusion(cm, "kNN (k=21, Manhattan) — Test Set", "hw3_knn_confusion.png")
+    plot_confusion(cm, "kNN (k=31, Manhattan) — Test Set", "hw3_knn_confusion.png")
 
     # Bin for NB
     binner = Binner(n_bins=5, strategy="quantile")
@@ -164,10 +164,13 @@ def generate_hw3_figures(X_train, X_test, y_train, y_test):
     ax.set_xticks(bins_list)
     savefig("hw3_nb_bins_sweep.png")
 
-    # --- NB best confusion ---
-    best_nb = DiscreteNaiveBayes(alpha=0.01).fit(X_tr_bin, y_train)
-    cm_nb = confusion_matrix(y_test, best_nb.predict(X_te_bin))
-    plot_confusion(cm_nb, "Naive Bayes (alpha=0.01, n_bins=5) — Test Set",
+    # --- NB best confusion (best config: alpha=0.01, n_bins=7) ---
+    best_binner = Binner(n_bins=7, strategy="quantile")
+    X_tr_best = best_binner.fit_transform(X_train)
+    X_te_best = best_binner.transform(X_test)
+    best_nb = DiscreteNaiveBayes(alpha=0.01).fit(X_tr_best, y_train)
+    cm_nb = confusion_matrix(y_test, best_nb.predict(X_te_best))
+    plot_confusion(cm_nb, "Naive Bayes (alpha=0.01, n_bins=7) — Test Set",
                    "hw3_nb_confusion.png")
 
 
@@ -485,7 +488,7 @@ def generate_cross_hw_figure(X_train, X_test, y_train, y_test, feature_names):
 
     # Best-config classifiers
     classifiers = {
-        "kNN": (KNN(k=21, distance="manhattan", weights="uniform"), X_tr_sc, X_te_sc),
+        "kNN": (KNN(k=31, distance="manhattan", weights="uniform"), X_tr_sc, X_te_sc),
         "NB": (DiscreteNaiveBayes(alpha=0.01), X_tr_bin, X_te_bin),
         "LS": (LeastSquaresClassifier(regularization=0), X_tr_sc, X_te_sc),
         "LR": (LogisticRegression(learning_rate=0.1, n_epochs=2000, regularization=0.1, tol=0),

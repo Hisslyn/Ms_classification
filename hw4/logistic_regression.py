@@ -317,16 +317,16 @@ if __name__ == "__main__":
     assert np.isclose(s[0], 1.0) and np.isclose(s[1], 0.0), f"Sigmoid wrong at extremes: {s}"
     print(f"[PASS] Sigmoid stability: σ(1000)={s[0]:.6f}, σ(-1000)={s[1]:.6f}")
 
-    # Diverging learning rate: lr=10 — must not crash; if loss hits inf/nan raise ValueError
-    print("[INFO] Testing diverging learning_rate=10 (may raise ValueError)...")
-    try:
-        clf_div = LogisticRegression(learning_rate=10.0, n_epochs=500, tol=0.0)
-        clf_div.fit(X, y)
-        # If it doesn't crash, verify loss_history_ contains only finite values
-        finite_losses = [np.isfinite(l) for l in clf_div.loss_history_]
-        print(f"[PASS] lr=10 ran to completion; all losses finite: {all(finite_losses)}")
-    except ValueError as e:
-        print(f"[PASS] lr=10 raised ValueError as expected: {e}")
+    # lr=1e6 + L2 regularization causes weight explosion → L2 term overflows → ValueError
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        try:
+            LogisticRegression(learning_rate=1e6, n_epochs=500, tol=0.0,
+                               regularization=1.0).fit(X, y)
+            raise AssertionError("Should have raised ValueError for non-finite loss")
+        except ValueError as e:
+            print(f"[PASS] Non-finite loss raises ValueError: {e}")
 
     # 3-class y must raise ValueError
     y3 = np.array([0, 1, 2] * 10)

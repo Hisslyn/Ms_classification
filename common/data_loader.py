@@ -22,6 +22,9 @@ def get_feature_types():
     return {
         "continuous": ["age", "trestbps", "chol", "thalch", "oldpeak"],
         "categorical": ["sex", "cp", "fbs", "restecg", "exang", "slope", "ca", "thal"],
+        # Columns where 0 is physiologically impossible and encodes a missing value
+        # in the UCI CSV rather than an actual measurement.
+        "zero_coded_missing": ["chol", "trestbps"],
     }
 
 
@@ -62,10 +65,12 @@ def load_heart_disease(path="data/heart_disease_uci.csv"):
 # General-purpose imputation and encoding
 # ---------------------------------------------------------------------------
 
-def impute_missing(df, continuous_cols, categorical_cols):
+def impute_missing(df, continuous_cols, categorical_cols, zero_coded_cols=None):
     """Impute missing values in a DataFrame without mutating the input.
 
     Strategy:
+    - Columns in zero_coded_cols: replace 0 with NaN first (0 encodes a missing
+      value in some datasets rather than a real measurement).
     - Continuous columns: replace NaN with the column median.
     - Categorical columns: replace NaN with the column mode (most frequent value).
       If multiple modes exist, the smallest (first alphabetically/numerically)
@@ -78,11 +83,16 @@ def impute_missing(df, continuous_cols, categorical_cols):
         df: pd.DataFrame (not mutated).
         continuous_cols: List of column names to median-impute.
         categorical_cols: List of column names to mode-impute.
+        zero_coded_cols: Optional list of column names where 0 means missing.
 
     Returns:
         New pd.DataFrame with missing values filled.
     """
     df = df.copy()
+    if zero_coded_cols:
+        for col in zero_coded_cols:
+            if col in df.columns:
+                df[col] = df[col].replace(0, np.nan)
     for col in continuous_cols:
         if col in df.columns:
             median = df[col].median()

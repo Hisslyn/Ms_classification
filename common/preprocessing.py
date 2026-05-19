@@ -82,8 +82,9 @@ class Binner:
         strategy: "uniform" or "quantile".
 
     Attributes:
-        edges_: List of np.ndarray, one per feature, containing bin edges
-                (length n_bins + 1).
+        edges_: List of np.ndarray, one per feature, containing bin edges.
+                Uniform strategy: length n_bins + 1. Quantile strategy:
+                length <= n_bins + 1 (duplicates removed via np.unique).
     """
 
     def __init__(self, n_bins=5, strategy="uniform"):
@@ -121,7 +122,7 @@ class Binner:
         return self
 
     def transform(self, X):
-        """Bin X using stored edges, returning integer indices in [0, n_bins-1].
+        """Bin X using stored edges, returning integer indices in [0, len(edges)-2].
 
         Values below the lowest edge go to bin 0; values above the highest
         edge go to the last bin (clipping behavior).
