@@ -1,4 +1,10 @@
-# Verification Pass — 2026-04-26
+# Verification Pass — 2026-05-20
+
+> **Provenance note:** An earlier pass was run on 2026-04-26 against a code state that did not
+> yet apply `zero_coded_cols=["chol","trestbps"]` in the imputation step. That run produced
+> different numbers (e.g. kNN 81.97 %, QDA 80.87 %, LS/LR/LDA/DT all 78.14 %). This document
+> supersedes that pass. All numbers below reflect the current code, which is also the code that
+> produced the report figures and the report's Section 5–6 tables.
 
 ## 1. Compliance grep
 
@@ -44,25 +50,25 @@ All re-executed numbers compared against previously-reported values. Tolerance: 
 
 | Metric | Expected | Re-executed | Verdict |
 |---|---|---|---|
-| HW3 kNN test accuracy | 81.97% | 81.97% | MATCH |
-| HW3 kNN 5-fold CV | 82.9% ± 1.9% | 82.91% ± 1.93% | MATCH |
+| HW3 kNN test accuracy | 79.78% | 79.78% | MATCH |
+| HW3 kNN 5-fold CV | 80.87% ± 2.12% | 80.87% ± 2.12% | MATCH |
 | HW3 NB test accuracy | 80.33% | 80.33% | MATCH |
-| HW3 NB 5-fold CV | 82.2% ± 2.3% | 82.23% ± 2.27% | MATCH |
-| HW4 LS test accuracy | 78.14% | 78.14% | MATCH |
-| HW4 LS macro F1 | 0.7795 | 0.7795 | MATCH |
-| HW4 LS 5-fold CV | 80.47% ± 2.82% | 80.47% ± 2.82% | MATCH |
-| HW4 LR test accuracy | 78.14% | 78.14% | MATCH |
-| HW4 LR macro F1 | 0.7779 | 0.7779 | MATCH |
-| HW4 LR 5-fold CV | 81.28% ± 2.95% | 81.28% ± 2.95% | MATCH |
-| HW5 LDA test accuracy | 78.14% | 78.14% | MATCH |
-| HW5 LDA 5-fold CV | 80.33% ± 2.96% | 80.33% ± 2.96% | MATCH |
-| HW5 QDA test accuracy | 80.87% | 80.87% | MATCH |
-| HW5 QDA 5-fold CV | 81.15% ± 2.00% | 81.15% ± 2.00% | MATCH |
-| HW5 DT test accuracy | 78.14% | 78.14% | MATCH |
-| HW5 DT 5-fold CV | 76.53% ± 1.38% | 76.53% ± 1.38% | MATCH |
+| HW3 NB 5-fold CV | 81.14% ± 1.78% | 81.14% ± 1.78% | MATCH |
+| HW4 LS test accuracy | 79.78% | 79.78% | MATCH |
+| HW4 LS macro F1 | 0.7930 | 0.7930 | MATCH |
+| HW4 LS 5-fold CV | 78.70% ± 2.19% | 78.70% ± 2.19% | MATCH |
+| HW4 LR test accuracy | 81.42% | 81.42% | MATCH |
+| HW4 LR macro F1 | 0.8101 | 0.8101 | MATCH |
+| HW4 LR 5-fold CV | 78.97% ± 2.58% | 78.97% ± 2.58% | MATCH |
+| HW5 LDA test accuracy | 79.78% | 79.78% | MATCH |
+| HW5 LDA 5-fold CV | 78.70% ± 2.19% | 78.70% ± 2.19% | MATCH |
+| HW5 QDA test accuracy | 79.23% | 79.23% | MATCH |
+| HW5 QDA 5-fold CV | 78.57% ± 2.78% | 78.57% ± 2.78% | MATCH |
+| HW5 DT test accuracy | 74.32% | 74.32% | MATCH |
+| HW5 DT 5-fold CV | 75.32% ± 2.51% | 75.32% ± 2.51% | MATCH |
 
 All 16 metrics match exactly (zero floating-point drift), confirming fully deterministic pipelines.
 
 ## 5. Summary
 
-The project is fully ready for report writing. All compliance checks pass (no sklearn, scipy.stats, xgboost, or any other banned library anywhere). All seven classifiers are general-purpose and reusable — they run correctly on held-out synthetic data with no algorithm-level modifications. All three evaluation notebooks (HW3, HW4, HW5) execute cleanly top-to-bottom from a fresh kernel, and every headline metric reproduces exactly to the last reported decimal place. There are no issues to resolve before writing the report.
+All compliance checks pass (no sklearn, scipy.stats, xgboost, or any other banned library anywhere). All seven classifiers are general-purpose and reusable — they run correctly on held-out synthetic data with no algorithm-level modifications. All three evaluation notebooks (HW3, HW4, HW5) execute cleanly top-to-bottom from a fresh kernel, and every headline metric reproduces exactly to the last reported decimal place. All numbers in this document match the report (Sections 3–6) and the README summary tables.

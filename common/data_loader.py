@@ -17,7 +17,9 @@ def get_feature_types():
     general; callers retrieve column lists from here and pass them in.
 
     Returns:
-        dict with keys "continuous" and "categorical", each a list of str.
+        dict with keys "continuous", "categorical", and "zero_coded_missing",
+        each a list of str. "zero_coded_missing" identifies columns where 0
+        encodes a missing value rather than a real measurement.
     """
     return {
         "continuous": ["age", "trestbps", "chol", "thalch", "oldpeak"],

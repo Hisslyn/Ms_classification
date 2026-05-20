@@ -242,7 +242,7 @@ def generate_hw4_figures(X_train, X_test, y_train, y_test, feature_names):
 
     # --- LR final-config loss curve ---
     best_lr = LogisticRegression(
-        learning_rate=0.1, n_epochs=2000, regularization=0.1, tol=0
+        learning_rate=0.1, n_epochs=2000, regularization=0.1, tol=1e-8
     ).fit(X_tr_sc, y_train)
 
     fig, ax = plt.subplots(figsize=(8, 5))

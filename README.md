@@ -93,7 +93,7 @@ ml_classification/
 ### `data_loader.py`
 
 **`get_feature_types() → dict`**  
-Returns `{"continuous": [...], "categorical": [...]}` — the only place dataset-specific column names are hardcoded. All transformation functions are general.
+Returns a dict with three keys: `{"continuous": [...], "categorical": [...], "zero_coded_missing": [...]}` — the only place dataset-specific column names are hardcoded. `zero_coded_missing` lists columns where `0` is physiologically impossible and encodes a missing value in the UCI CSV (`chol`, `trestbps`); callers pass this list to `impute_missing` via its `zero_coded_cols` argument. All transformation functions are otherwise general.
 
 **`load_heart_disease(path) → pd.DataFrame`**  
 Reads CSV, binarizes `num` into `target`, drops `id` and `dataset`. No imputation or encoding — those are separate steps.
@@ -112,7 +112,7 @@ Maps each categorical column to integer codes using sorted unique values → 0, 
 ### `preprocessing.py`
 
 **`StandardScaler`**  
-Formula: `X_scaled = (X - μ) / σ` where μ and σ are computed column-wise on training data only. Test data uses training statistics (no leakage).
+Formula: `X_scaled = (X - μ) / σ` where μ and σ are computed column-wise on training data only (σ is population std, `ddof=0`). Test data uses training statistics (no leakage).
 
 - `fit(X)` stores `mean_` and `std_`.
 - `transform(X)` applies the formula.
@@ -354,7 +354,7 @@ Both pipelines are fit on training data only; test data is transformed using tra
 
 | Algorithm | Best config | CV acc (5-fold) | Test acc | Macro F1 |
 |-----------|------------|----------------|----------|----------|
-| kNN | k=31, distance=manhattan | 0.8087 ± 0.0212 | **0.7978** | 0.7954 |
+| kNN | k=31, distance=manhattan, weights=uniform | 0.8087 ± 0.0212 | **0.7978** | 0.7954 |
 | Naive Bayes | alpha=0.01, n_bins=7 | 0.8114 ± 0.0178 | **0.8033** | 0.8001 |
 
 ### Key findings
@@ -517,7 +517,8 @@ from hw4.logistic_regression import LogisticRegression
 lr = LogisticRegression(learning_rate=0.1, n_epochs=2000, tol=1e-8, regularization=0.1)
 lr.fit(X_train, y_train)
 
-y_pred    = lr.predict(X_test)              # shape (n_test,)
+y_pred    = lr.predict(X_test)              # shape (n_test,); default threshold=0.5
+y_pred_hr = lr.predict(X_test, threshold=0.3)  # lower threshold → higher recall
 y_proba   = lr.predict_proba(X_test)        # shape (n_test, 2), rows sum to 1
 logits    = lr.decision_function(X_test)    # shape (n_test,) — pre-sigmoid scores
 loss_hist = lr.loss_history_                # list of per-epoch losses (BCE + L2 penalty)
@@ -529,6 +530,8 @@ loss_hist = lr.loss_history_                # list of per-epoch losses (BCE + L2
 - `intercept_` — scalar bias
 - `loss_history_` — list of loss values per epoch
 - `n_iter_` — actual epochs run (may be < n_epochs if early stopping triggered)
+
+**`predict(X, threshold=0.5)`** — classifies as `classes_[1]` when `P(y=classes_[1] | x) ≥ threshold`. Lower the threshold to increase recall for the positive class (at the cost of precision); raise it to do the opposite.
 
 ### Sanity test
 
@@ -580,20 +583,20 @@ Scaling is essential for both algorithms: the conditioning of X̃ᵀX̃ (least-s
 
 | Algorithm | Config | CV acc (5-fold) | Test acc | Macro F1 |
 |-----------|--------|-----------------|----------|----------|
-| Least-Squares | λ=0 (no reg needed) | 0.8047 ± 0.0282 | **0.7814** | 0.7795 |
-| Logistic Regression | lr=0.1, λ=0.1, 2000 epochs | 0.8128 ± 0.0295 | **0.7814** | 0.7779 |
+| Least-Squares | λ=0 (no reg needed) | 0.7870 ± 0.0219 | **0.7978** | 0.7930 |
+| Logistic Regression | lr=0.1, λ=0.1, 2000 epochs | 0.7897 ± 0.0258 | **0.8142** | 0.8101 |
 
 ### Key findings
 
 - **Regularization for least-squares:** Test accuracy is flat across all λ ∈ {0, 0.01, 0.1, 1.0, 10.0, 100.0} after standardization. X̃ᵀX̃ is already well-conditioned — ridge regularization neither helps nor hurts. Best λ defaults to 0.
 
-- **Convergence speed:** `lr=0.1` reaches the BCE optimum in ~742 epochs. `lr=0.001` had not converged after 2,000 epochs in the learning-rate sweep (final loss 0.494 vs. optimum 0.423). For this dataset, any `lr ≥ 0.1` converges cleanly because the scaled feature matrix is well-conditioned.
+- **Convergence speed:** `lr=0.1` reaches the BCE optimum in ~742 epochs. `lr=0.001` had not converged after 2,000 epochs in the learning-rate sweep (final loss 0.503 vs. optimum 0.423). For this dataset, any `lr ≥ 0.1` converges cleanly because the scaled feature matrix is well-conditioned.
 
-- **Both HW4 methods tie at 78.14% test accuracy**, roughly 1.6 pp below the best HW3 result (kNN 79.78%). The gap suggests the optimal boundary has slight non-linearity that kNN's locally adaptive decision captures.
+- **Logistic regression (81.42%) outperforms least-squares (79.78%) by 1.64 pp** on the test set. Both HW4 linear methods are competitive with kNN (79.78%), and all three are within one CV standard deviation of each other.
 
 - **Score correlation:** LS and LR decision scores correlate at r ≈ 0.995 — they carve out nearly the same boundary despite different loss functions. The loss-function difference matters more when class distributions have heavy tails or severe imbalance.
 
-- **Top LR features by |coef|:** `cp` (chest pain type, −0.40), `exang` (exercise angina, +0.36), `sex` (+0.36), `oldpeak` (ST depression, +0.34). All signs are clinically consistent with known cardiovascular disease risk factors.
+- **Top LR features by |coef|:** `sex` (+0.40), `cp` (chest pain type, −0.40), `exang` (exercise angina, +0.35), `oldpeak` (ST depression, +0.34). All signs are clinically consistent with known cardiovascular disease risk factors.
 
 ---
 
@@ -644,7 +647,7 @@ For each class c, from the training set:
 | Concern | Solution |
 |---------|---------|
 | Singular covariance (correlated features, small N_c) | Ridge: add `ε·I` (`reg_param`, default `1e-6`) to every covariance before inversion |
-| Matrix inversion | `np.linalg.solve(Σ, I)` instead of `np.linalg.inv(Σ)` — uses LU factorisation, never forms the explicit inverse |
+| Matrix inversion | `np.linalg.solve(Σ, I)` instead of `np.linalg.inv(Σ)` — computes the inverse via LU factorisation, which is more numerically stable than calling `inv` directly |
 | Log-determinant overflow | `np.linalg.slogdet` returns `(sign, log|det|)` directly — avoids computing `det` then `log` of a potentially huge number |
 | Under-sampled QDA class | `N_c < n_features + 1` → rank-deficient scatter matrix; detected at fit time with a clear `ValueError` suggesting LDA, more data, or PCA |
 | Posterior normalization | Log-sum-exp trick: `P(y=c|x) = exp(δ_c − log Σ_c exp(δ_c))`; subtract row-max before exp to prevent overflow |
@@ -685,8 +688,8 @@ scores  = qda.decision_function(X_test)
 | `classes_` | sorted unique labels | sorted unique labels |
 | `priors_` | `(K,)` | `(K,)` |
 | `means_` | `(K, n_features)` | `(K, n_features)` |
-| `covariance_` | `(n_features, n_features)` pooled Σ | — |
-| `covariances_` | — | `(K, n_features, n_features)` per-class Σ_c |
+| `covariance_` | `(n_features, n_features)` pooled Σ (with ridge: `scatter/(N-K) + ε·I`) | — |
+| `covariances_` | — | `(K, n_features, n_features)` per-class Σ_c (with ridge: `Xc.T@Xc/(n_c-1) + ε·I`) |
 
 ### Design note
 
@@ -705,7 +708,7 @@ Verifies (on synthetic 2D data, 3 classes):
 1. LDA on shared-covariance data: training accuracy > 90 %.
 2. QDA on distinct-covariance data: training accuracy > 90 %.
 3. QDA on 5-sample class with 10 features: `ValueError` raised as expected.
-4. LDA on distinct-covariance data: still runs; accuracy lower than QDA's (confirms the two models differ).
+4. LDA on distinct-covariance data: still runs without error (accuracy is printed for reference; no threshold is asserted).
 5. Both handle binary (K=2) inputs with accuracy > 90 % and `predict_proba` rows summing to 1.
 6. `LDA(reg_param=-1)` and `QDA(reg_param=-0.01)` raise `ValueError`.
 
@@ -825,33 +828,33 @@ jupyter nbconvert --to notebook --execute --inplace hw5/hw5_evaluation.ipynb
 
 | Algorithm | Best Config | 5-fold CV | Test Acc | Macro F1 |
 |-----------|------------|-----------|----------|----------|
-| LDA | reg_param=1e-6 | 0.8033 ± 0.0296 | **0.7814** | 0.7795 |
-| QDA | reg_param=1e-6 | 0.8115 ± 0.0200 | **0.8087** | 0.8019 |
-| Decision Tree | gini, min_leaf=20 | 0.7653 ± 0.0138 | **0.7814** | 0.7766 |
+| LDA | reg_param=1e-6 | 0.7870 ± 0.0219 | **0.7978** | 0.7930 |
+| QDA | reg_param=1e-6 | 0.7857 ± 0.0278 | **0.7923** | 0.7877 |
+| Decision Tree | gini, min_leaf=20 | 0.7532 ± 0.0251 | **0.7432** | 0.7361 |
 
 ### Cross-HW comparison (all seven classifiers)
 
 | Algorithm | Best Config | 5-fold CV | Test Acc | Macro F1 |
 |-----------|------------|-----------|----------|----------|
-| kNN | k=31, manhattan | 0.8087 ± 0.0212 | **0.7978** | 0.7954 |
+| kNN | k=31, manhattan, uniform | 0.8087 ± 0.0212 | **0.7978** | 0.7954 |
 | Naive Bayes | alpha=0.01, n_bins=7 | 0.8114 ± 0.0178 | **0.8033** | 0.8001 |
-| Least-Squares | λ=0 | 0.8047 ± 0.0282 | 0.7814 | 0.7795 |
-| Logistic Regression | lr=0.1, λ=0.1 | 0.8128 ± 0.0295 | 0.7814 | 0.7779 |
-| LDA | reg_param=1e-6 | 0.8033 ± 0.0296 | 0.7814 | 0.7795 |
-| QDA | reg_param=1e-6 | 0.8115 ± 0.0200 | **0.8087** | 0.8019 |
-| Decision Tree | gini, min_leaf=20 | 0.7653 ± 0.0138 | 0.7814 | 0.7766 |
+| Least-Squares | λ=0 | 0.7870 ± 0.0219 | 0.7978 | 0.7930 |
+| Logistic Regression | lr=0.1, λ=0.1 | 0.7897 ± 0.0258 | **0.8142** | 0.8101 |
+| LDA | reg_param=1e-6 | 0.7870 ± 0.0219 | 0.7978 | 0.7930 |
+| QDA | reg_param=1e-6 | 0.7857 ± 0.0278 | 0.7923 | 0.7877 |
+| Decision Tree | gini, min_leaf=20 | 0.7532 ± 0.0251 | 0.7432 | 0.7361 |
 
 ### Key findings
 
-**Algorithm family ranking:** QDA > Naive Bayes > kNN > the rest (linear models + DT all at ~78%).  Naive Bayes (80.33%) marginally outperforms kNN (79.78%); QDA's per-class covariance captures mild non-linearity that the shared-covariance LDA misses.
+**Algorithm family ranking:** Logistic Regression (81.42%) > Naive Bayes (80.33%) > kNN = Least-Squares = LDA (all 79.78%) > QDA (79.23%) > Decision Tree (74.32%).  The top five cluster within 2.2 pp; the decision tree sits distinctly lower.
 
-**LDA vs QDA:** QDA outperforms LDA by 2.7 pp.  The per-class covariance diagonals reveal that `chol`, `oldpeak`, `thal`, and `ca` have variance ratios of 2.5–3.0 between classes — the shared-covariance assumption of LDA does not hold, and QDA's quadratic boundary is the better fit.
+**LDA vs QDA:** LDA marginally outperforms QDA by 0.55 pp (79.78% vs 79.23%).  After correcting the `chol` zero-coded missings, the class-variance asymmetry that previously favoured QDA collapses (chol variance ratio drops from ~3.0 to 0.98), and LDA's shared-covariance assumption is now the better fit.  Both CV bands nearly coincide (78.70% ± 2.19% vs 78.57% ± 2.78%).
 
-**Decision Tree:** the best DT (min_samples_leaf=20, unconstrained depth) matches the linear models at 78.14% test accuracy but shows higher CV variance.  The depth sweep confirms classic overfitting: training accuracy reaches 100% (unconstrained tree memorizes the data) while test accuracy peaks around max_depth=5 and then declines.  `min_samples_leaf=20` is more effective regularization than limiting depth on this dataset.
+**Decision Tree:** the best DT (min_samples_leaf=20, unconstrained depth) achieves 74.32% test accuracy — roughly 5–7 pp behind the leading methods.  The depth sweep confirms classic overfitting: training accuracy reaches 100% (unconstrained tree memorizes the data) while test accuracy peaks at max_depth=3 (73.22%) and declines thereafter.  `min_samples_leaf=20` is more effective regularization than limiting depth on this dataset.
 
-**Cross-algorithm feature agreement:** `cp` (chest pain type) and `exang` (exercise-induced angina) are identified as top features by LDA mean separation (0.80 and 0.87 z-units), logistic regression coefficients (|coef| 0.40 and 0.36), and decision tree root splits.  Three independent algorithms pointing to the same features is strong evidence of genuine clinical importance.
+**Cross-algorithm feature agreement:** `cp` (chest pain type) and `exang` (exercise-induced angina) are identified as top features by LDA mean separation (0.80 and 0.87 z-units), logistic regression coefficients (|coef| 0.40 and 0.35), and decision tree root splits.  Three independent algorithms pointing to the same features is strong evidence of genuine clinical importance.
 
-**Practical recommendation:** QDA for calibrated probabilities; Decision Tree (min_leaf=20) for interpretability.  All models share the same missing-data limitation: `ca` and `thal` have high missingness rates, and median/mode imputation is a simplification that a production system should address more carefully.
+**Practical recommendation:** Logistic Regression for maximum accuracy; LDA when estimation stability matters (fewer parameters than QDA); Decision Tree (min_leaf=20) for interpretability.  All models share the same missing-data limitation: `ca` and `thal` have high missingness rates, and median/mode imputation is a simplification that a production system should address more carefully.
 
 ---
 

@@ -6,15 +6,15 @@ import numpy as np
 class StandardScaler:
     """Standardize features to zero mean and unit variance.
 
-    Computes mean and std from training data, then applies the transform
-    X_scaled = (X - mean) / std to any array. When std is 0 for a feature
-    (constant column), it is treated as 1 to avoid division by zero, leaving
-    that feature unchanged after mean subtraction (it becomes all zeros).
+    Computes mean and population std (ddof=0) from training data, then applies
+    the transform X_scaled = (X - mean) / std to any array. When std is 0 for
+    a feature (constant column), it is treated as 1 to avoid division by zero,
+    leaving that feature unchanged after mean subtraction (it becomes all zeros).
 
     Attributes:
         mean_: np.ndarray of shape (n_features,) — per-feature training mean.
-        std_:  np.ndarray of shape (n_features,) — per-feature training std
-               (zeros replaced by 1).
+        std_:  np.ndarray of shape (n_features,) — per-feature training
+               population std (ddof=0); zeros replaced by 1.
     """
 
     def __init__(self):
@@ -22,7 +22,7 @@ class StandardScaler:
         self.std_ = None
 
     def fit(self, X):
-        """Compute mean and std from training data X.
+        """Compute mean and population std (ddof=0) from training data X.
 
         Args:
             X: Array-like of shape (n_samples, n_features).
@@ -32,7 +32,7 @@ class StandardScaler:
         """
         X = np.asarray(X, dtype=float)
         self.mean_ = X.mean(axis=0)
-        std = X.std(axis=0)
+        std = X.std(axis=0, ddof=0)
         # Replace zero std with 1 so constant features become all-zeros after scaling
         self.std_ = np.where(std == 0, 1.0, std)
         return self
